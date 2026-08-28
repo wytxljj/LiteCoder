@@ -50,6 +50,18 @@ WRITE_FILE = _schema(
     },
     ["path", "content"],
 )
+EDIT_FILE = _schema(
+    "edit_file",
+    "对工作区内指定文件做局部替换：把 old_text 替换为 new_text。"
+    "old_text 必须与文件中某段文本逐字一致（含空格与缩进）。"
+    "若匹配不到或匹配到多处会返回错误，请按提示用 read_file 确认后重试。",
+    {
+        "path": {"type": "string", "description": "要编辑的文件路径，相对工作区"},
+        "old_text": {"type": "string", "description": "要被替换的原文，需与文件内容逐字一致"},
+        "new_text": {"type": "string", "description": "替换后的新文本"},
+    },
+    ["path", "old_text", "new_text"],
+)
 RUN_COMMAND = _schema(
     "run_command",
     "在工作区目录下执行一条 shell 命令，返回 exit_code、stdout、stderr。用于运行测试、脚本、git 等。",
@@ -70,6 +82,7 @@ class ToolRegistry:
             "list_files": (LIST_FILES, self._list_files),
             "read_file": (READ_FILE, self._read_file),
             "write_file": (WRITE_FILE, self._write_file),
+            "edit_file": (EDIT_FILE, self._edit_file),
             "run_command": (RUN_COMMAND, self._run_command),
         }
 
@@ -140,6 +153,35 @@ class ToolRegistry:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         return f"已写入 {path.relative_to(self.workspace)}（{len(content)} 字符）"
+
+    def _edit_file(self, args: dict) -> str:
+        path = self._resolve(args["path"])
+        if not path.exists():
+            raise ToolError(f"文件不存在：{args['path']}")
+        if path.is_dir():
+            raise ToolError(f"是目录而非文件：{args['path']}")
+        old_text = args.get("old_text", "")
+        new_text = args.get("new_text", "")
+        if not old_text:
+            raise ToolError("old_text 不能为空")
+        text = path.read_text(encoding="utf-8")
+        count = text.count(old_text)
+        total_lines = len(text.splitlines())
+        if count == 0:
+            raise ToolError(
+                f"未找到 old_text（出现 0 次）。文件共 {total_lines} 行。"
+                "请用 read_file 重新确认确切文本（注意空格、缩进、标点）。"
+            )
+        if count > 1:
+            raise ToolError(
+                f"old_text 出现 {count} 次，存在歧义。请扩大 old_text 以包含更多上下文，"
+                "使其在文件中唯一匹配。"
+            )
+        path.write_text(text.replace(old_text, new_text, 1), encoding="utf-8")
+        return (
+            f"已替换 {path.relative_to(self.workspace)} 中 1 处匹配"
+            f"（{len(old_text)} → {len(new_text)} 字符）"
+        )
 
     def _run_command(self, args: dict) -> str:
         command = args["command"]
