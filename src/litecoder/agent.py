@@ -1,8 +1,7 @@
 """Agent 核心循环：决策 → 调用工具 → 回填结果 → 再决策，直到终止条件满足。"""
-import json
-
 from .config import Config
 from .llm import LLMClient
+from .parsing import parse_arguments
 from .tools import ToolRegistry
 
 
@@ -53,16 +52,10 @@ class Agent:
                 name = func.get("name", "")
                 raw_args = func.get("arguments") or "{}"
 
-                # 解析工具参数（模型输出解析容错：非法 JSON 回喂给模型自纠）
-                try:
-                    arguments = json.loads(raw_args)
-                    if not isinstance(arguments, dict):
-                        arguments = {}
-                except (json.JSONDecodeError, TypeError):
-                    arguments = None
-
+                # 解析工具参数（自研容错：剥离多余文本/尾随逗号修复 → 仍失败则回喂模型自纠）
+                arguments, parse_error = parse_arguments(raw_args)
                 if arguments is None:
-                    result = f"错误：工具参数不是合法 JSON：{raw_args!r}，请重新生成。"
+                    result = parse_error or "错误：工具参数解析失败。"
                 else:
                     result = self.tools.execute(name, arguments)
 

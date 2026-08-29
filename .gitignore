@@ -15,3 +15,6 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# 测试缓存
+.pytest_cache/
