@@ -1,9 +1,54 @@
 """工具定义与本地执行：JSON Schema 定义 + 执行器，全部自研。"""
+import re
 import subprocess
 from pathlib import Path
 
 
 MAX_OUTPUT = 4000  # 单个工具返回结果的最大字符数，防止撑爆上下文
+HEAD_LINES = 30    # 截断时保留的开头行数
+TAIL_LINES = 30    # 截断时保留的结尾行数
+
+# 高危命令拦截：命中即拒绝执行。只拦截语义明确危险、几乎无正当用途的模式，
+# 避免误伤正常命令（如相对路径清理 rm -rf build/）。
+_DANGEROUS_PATTERNS: list[tuple[str, str]] = [
+    (r"\brm\s+(-[a-zA-Z]+\s+)*/\s*$", "递归删除根目录（rm -rf /）"),
+    (r"\brm\s+(-[a-zA-Z]+\s+)*/\*", "递归删除根目录下所有文件（rm -rf /*）"),
+    (r"\brm\s+(-[a-zA-Z]+\s+)*~\s*$", "递归删除家目录（rm -rf ~）"),
+    (r"\b(shutdown|reboot|halt|poweroff)\b", "关机或重启主机"),
+    (r"\binit\s+[06]\b", "切换运行级别导致关机/重启"),
+    (r"\bmkfs(\.[a-z0-9]+)?\b", "格式化文件系统"),
+    (r"\bdd\b.*\bof=/dev/", "直接覆盖磁盘设备"),
+    (r":\(\)\s*\{\s*:\|:&\s*\};:", "fork bomb 进程炸弹"),
+]
+
+
+def _is_dangerous(command: str) -> str | None:
+    """命中危险模式则返回危险说明，否则返回 None。"""
+    for pattern, desc in _DANGEROUS_PATTERNS:
+        if re.search(pattern, command):
+            return desc
+    return None
+
+
+def _truncate(text: str) -> str:
+    """超长输出截断：保留头尾关键信息（如 pytest 开头与最终摘要），中间省略。
+
+    优先按行截断（保留头 HEAD_LINES / 尾 TAIL_LINES 行）；单行超长导致
+    按字符仍超限时，退化为按字符头尾截断。
+    """
+    if len(text) <= MAX_OUTPUT:
+        return text
+    lines = text.splitlines()
+    if len(lines) > HEAD_LINES + TAIL_LINES:
+        head = "\n".join(lines[:HEAD_LINES])
+        tail = "\n".join(lines[-TAIL_LINES:])
+        result = (
+            f"{head}\n...（中间省略 {len(lines) - HEAD_LINES - TAIL_LINES} 行）...\n{tail}"
+        )
+        if len(result) <= MAX_OUTPUT:
+            return result
+    half = MAX_OUTPUT // 2
+    return f"{text[:half]}\n...（中间省略，原 {len(text)} 字符）...\n{text[-half:]}"
 
 
 class ToolError(Exception):
@@ -127,7 +172,7 @@ class ToolRegistry:
         for entry in entries:
             kind = "[目录]" if entry.is_dir() else "[文件]"
             lines.append(f"{kind} {entry.relative_to(self.workspace)}")
-        return self._truncate("\n".join(lines))
+        return _truncate("\n".join(lines))
 
     def _read_file(self, args: dict) -> str:
         path = self._resolve(args["path"])
@@ -145,7 +190,7 @@ class ToolRegistry:
         end = offset - 1 + len(selected)
         if end < len(lines):
             result += f"\n...（共 {len(lines)} 行，已显示 {offset}~{end} 行）"
-        return self._truncate(result)
+        return _truncate(result)
 
     def _write_file(self, args: dict) -> str:
         path = self._resolve(args["path"])
@@ -185,6 +230,12 @@ class ToolRegistry:
 
     def _run_command(self, args: dict) -> str:
         command = args["command"]
+        danger = _is_dangerous(command)
+        if danger:
+            return (
+                f"错误：命令被安全策略拦截（{danger}）：{command!r}。"
+                "请改用更安全的方式完成同样的目标。"
+            )
         timeout = int(args.get("timeout", 30))
         try:
             proc = subprocess.run(
@@ -202,10 +253,4 @@ class ToolRegistry:
             parts.append(f"stdout:\n{proc.stdout.rstrip()}")
         if proc.stderr:
             parts.append(f"stderr:\n{proc.stderr.rstrip()}")
-        return self._truncate("\n".join(parts))
-
-    @staticmethod
-    def _truncate(text: str) -> str:
-        if len(text) > MAX_OUTPUT:
-            return text[:MAX_OUTPUT] + f"\n...（已截断，原 {len(text)} 字符）"
-        return text
+        return _truncate("\n".join(parts))

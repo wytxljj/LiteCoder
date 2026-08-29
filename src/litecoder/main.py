@@ -8,7 +8,7 @@ from .llm import LLMClient
 from .tools import ToolRegistry
 
 
-def _print_trace(trace: list[dict]) -> None:
+def _print_trace(trace: list[dict], success: bool) -> None:
     if not trace:
         return
     print("\n" + "─" * 60)
@@ -18,7 +18,15 @@ def _print_trace(trace: list[dict]) -> None:
         args = item["args"] if item["args"] is not None else {}
         print(f"Step {item['step']:<2}  {item['tool']}({args})")
     print("─" * 60)
-    print(f"共 {len(trace)} 次工具调用")
+    modified = sum(
+        1
+        for item in trace
+        if item["tool"] in ("write_file", "edit_file")
+        and item["args"]
+        and "path" in item["args"]
+    )
+    status = "Success" if success else "Failed"
+    print(f"Summary: {len(trace)} tool calls / {modified} file(s) modified / {status}")
 
 
 def run_once(task: str, workspace: Path, verbose: bool = True) -> None:
@@ -32,7 +40,7 @@ def run_once(task: str, workspace: Path, verbose: bool = True) -> None:
     finally:
         llm.close()
     if verbose:
-        _print_trace(result["trace"])
+        _print_trace(result["trace"], result["success"])
         print("\n" + "=" * 60)
         print("最终回答")
         print("=" * 60)
@@ -58,7 +66,7 @@ def run_repl(workspace: Path) -> None:
             if task in ("/quit", "/exit"):
                 break
             result = agent.run(task)
-            _print_trace(result["trace"])
+            _print_trace(result["trace"], result["success"])
             print("\n" + result["answer"])
     finally:
         llm.close()

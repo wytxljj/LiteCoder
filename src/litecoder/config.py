@@ -30,7 +30,7 @@ class Config:
         self.model = os.environ.get("LLM_MODEL", "deepseek-chat")
         self.timeout = float(os.environ.get("LLM_TIMEOUT", "120"))
         self.max_steps = int(os.environ.get("MAX_STEPS", "20"))
-        self.command_timeout = int(os.environ.get("COMMAND_TIMEOUT", "30"))
+        self.max_context_messages = int(os.environ.get("MAX_CONTEXT_MESSAGES", "40"))
 
     def validate(self) -> None:
         if not self.api_key:
