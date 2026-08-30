@@ -184,6 +184,8 @@ class ToolRegistry:
         limit = max(1, int(args.get("limit", 200)))
         text = path.read_text(encoding="utf-8", errors="replace")
         lines = text.splitlines()
+        if offset > len(lines) and lines:
+            raise ToolError(f"offset={offset} 超出文件行数（共 {len(lines)} 行）")
         selected = lines[offset - 1 : offset - 1 + limit]
         numbered = [f"{offset + i:>6}  {line}" for i, line in enumerate(selected)]
         result = "\n".join(numbered)

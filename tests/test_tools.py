@@ -1,7 +1,10 @@
 """工具层安全策略与输出截断的单元测试。"""
+import tempfile
+from pathlib import Path
+
 import pytest
 
-from litecoder.tools import _is_dangerous, _truncate
+from litecoder.tools import ToolError, ToolRegistry, _is_dangerous, _truncate
 
 
 @pytest.mark.parametrize(
@@ -65,3 +68,20 @@ def test_truncate_by_chars_when_lines_long():
     assert out != text
     assert "省略" in out
     assert len(out) <= 4200
+
+
+def test_read_file_offset_out_of_range():
+    # offset 超过文件行数时应给出明确提示，而非返回空结果
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "a.py").write_text("l1\nl2\nl3\n")
+        reg = ToolRegistry(Path(d))
+        with pytest.raises(ToolError, match="超出文件行数"):
+            reg._read_file({"path": "a.py", "offset": 100})
+
+
+def test_read_file_empty_file_ok():
+    # 空文件读取应返回空串而非报错
+    with tempfile.TemporaryDirectory() as d:
+        (Path(d) / "a.py").write_text("")
+        reg = ToolRegistry(Path(d))
+        assert reg._read_file({"path": "a.py"}) == ""
