@@ -1,8 +1,24 @@
 """Agent 核心循环：决策 → 调用工具 → 回填结果 → 再决策，直到终止条件满足。"""
+from typing import Protocol
+
 from .config import Config
-from .llm import LLMClient
 from .parsing import parse_arguments
 from .tools import ToolRegistry
+
+
+class ChatModel(Protocol):
+    """Agent 依赖的 LLM 抽象（结构化类型）：任何实现 chat / close 的对象均可注入。
+
+    便于单元测试用 mock 替换真实客户端，也便于未来切换不同模型后端。
+    """
+
+    def chat(self, messages: list[dict], tools: list[dict] | None = None) -> dict:
+        """发送对话请求，返回 assistant message（可能带 tool_calls）。"""
+        ...
+
+    def close(self) -> None:
+        """释放底层连接。"""
+        ...
 
 
 SYSTEM_PROMPT = """你是一个运行在本地的编程智能体（Coding Agent）。你可以调用工具来读写文件、列出目录、执行命令，从而完成用户的编程任务。
@@ -20,7 +36,7 @@ SYSTEM_PROMPT = """你是一个运行在本地的编程智能体（Coding Agent�
 class Agent:
     """把「LLM 决策」和「本地工具执行」串起来的核心循环。"""
 
-    def __init__(self, cfg: Config, llm: LLMClient, tools: ToolRegistry):
+    def __init__(self, cfg: Config, llm: ChatModel, tools: ToolRegistry):
         self.cfg = cfg
         self.llm = llm
         self.tools = tools
