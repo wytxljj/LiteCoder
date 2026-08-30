@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "litecoder"
+version = "0.1.0"
+description = "从零实现的轻量级编程智能体（Coding Agent）"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+litecoder = "litecoder.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
