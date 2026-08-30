@@ -1,5 +1,7 @@
 """工具定义与本地执行：JSON Schema 定义 + 执行器，全部自研。"""
+import os
 import re
+import signal
 import subprocess
 from pathlib import Path
 
@@ -239,20 +241,32 @@ class ToolRegistry:
                 "请改用更安全的方式完成同样的目标。"
             )
         timeout = int(args.get("timeout", 30))
+        proc = subprocess.Popen(
+            command,
+            shell=True,
+            cwd=str(self.workspace),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,  # 独立进程组，超时时可整组终止
+        )
         try:
-            proc = subprocess.run(
-                command,
-                shell=True,
-                cwd=str(self.workspace),
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
+            self._kill_process_group(proc)  # 终止 shell 及全部子进程，避免孤儿进程残留
+            proc.communicate()  # 回收进程、关闭管道
             return f"错误：命令超时（>{timeout}s）：{command}"
         parts = [f"exit_code={proc.returncode}"]
-        if proc.stdout:
-            parts.append(f"stdout:\n{proc.stdout.rstrip()}")
-        if proc.stderr:
-            parts.append(f"stderr:\n{proc.stderr.rstrip()}")
+        if stdout:
+            parts.append(f"stdout:\n{stdout.rstrip()}")
+        if stderr:
+            parts.append(f"stderr:\n{stderr.rstrip()}")
         return _truncate("\n".join(parts))
+
+    @staticmethod
+    def _kill_process_group(proc: subprocess.Popen) -> None:
+        """终止子进程及其整个进程组，避免 shell 的子进程成为孤儿。"""
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            proc.kill()
