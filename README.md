@@ -103,6 +103,12 @@ litecoder -w /path/to/workspace
 # >>> 输入任务，/quit 退出
 ```
 
+保存可回放的执行轨迹（JSON 完整记录，含任务、模型、每一步工具调用与结果、最终答案）：
+
+```bash
+litecoder "任务" -w /path/to/workspace --log trace.json
+```
+
 ## 工具说明
 
 | 工具 | 作用 | 设计要点 |

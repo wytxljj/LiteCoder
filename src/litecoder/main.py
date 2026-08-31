@@ -1,5 +1,7 @@
 """CLI 入口：一次性任务模式与交互式 REPL。"""
 import argparse
+import json
+from datetime import datetime
 from pathlib import Path
 
 from .agent import Agent
@@ -38,7 +40,51 @@ def _report_llm_failure(agent: Agent, exc: LLMError) -> None:
     print("已完成的部分执行轨迹见上；请检查网络或 API 配置后重试。")
 
 
-def run_once(task: str, workspace: Path, verbose: bool = True) -> int:
+def _build_record(
+    task: str,
+    cfg: Config,
+    workspace: Path,
+    result: dict | None = None,
+    trace: list[dict] | None = None,
+    error: Exception | None = None,
+) -> dict:
+    """构造可回放的完整轨迹记录（成功与失败两种形态）。"""
+    record = {
+        "task": task,
+        "model": cfg.model,
+        "workspace": str(workspace),
+        "max_steps": cfg.max_steps,
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+    }
+    if result is not None:
+        record.update(
+            {
+                "success": result["success"],
+                "steps_used": result["steps"],
+                "answer": result["answer"],
+                "trace": result["trace"],
+            }
+        )
+    else:
+        record.update({"success": False, "error": str(error), "trace": trace or []})
+    return record
+
+
+def _write_trace_log(record: dict, path: Path) -> None:
+    """把记录写入 JSON 文件（ensure_ascii=False 保证中文可读）。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"📝 执行轨迹已写入 {path}")
+
+
+def _numbered_log(path: Path, n: int) -> Path:
+    """REPL 模式下给每个任务的日志文件加序号，避免互相覆盖。"""
+    path = Path(path)
+    return path.with_name(f"{path.stem}-{n}{path.suffix}")
+
+
+def run_once(task: str, workspace: Path, verbose: bool = True, log_path: Path | None = None) -> int:
     cfg = Config()
     cfg.validate()
     llm = LLMClient(cfg)
@@ -47,6 +93,8 @@ def run_once(task: str, workspace: Path, verbose: bool = True) -> int:
     try:
         result = agent.run(task)
     except LLMError as exc:
+        if log_path:
+            _write_trace_log(_build_record(task, cfg, workspace, trace=agent.trace, error=exc), log_path)
         if verbose:
             _report_llm_failure(agent, exc)
         else:
@@ -54,6 +102,8 @@ def run_once(task: str, workspace: Path, verbose: bool = True) -> int:
         return 1
     finally:
         llm.close()
+    if log_path:
+        _write_trace_log(_build_record(task, cfg, workspace, result=result), log_path)
     if verbose:
         _print_trace(result["trace"], result["success"])
         print("\n" + "=" * 60)
@@ -63,13 +113,14 @@ def run_once(task: str, workspace: Path, verbose: bool = True) -> int:
     return 0
 
 
-def run_repl(workspace: Path) -> int:
+def run_repl(workspace: Path, log_path: Path | None = None) -> int:
     cfg = Config()
     cfg.validate()
     llm = LLMClient(cfg)
     tools = ToolRegistry(workspace.resolve())
     agent = Agent(cfg, llm, tools)
     print(f"LiteCoder 交互模式（工作区：{workspace}），输入 /quit 退出。")
+    counter = 0
     try:
         while True:
             try:
@@ -84,9 +135,20 @@ def run_repl(workspace: Path) -> int:
             try:
                 result = agent.run(task)
             except LLMError as exc:
-                # 单个任务失败不退出 REPL，提示后继续等待输入
+                counter += 1
+                if log_path:
+                    _write_trace_log(
+                        _build_record(task, cfg, workspace, trace=agent.trace, error=exc),
+                        _numbered_log(log_path, counter),
+                    )
                 _report_llm_failure(agent, exc)
                 continue
+            counter += 1
+            if log_path:
+                _write_trace_log(
+                    _build_record(task, cfg, workspace, result=result),
+                    _numbered_log(log_path, counter),
+                )
             _print_trace(result["trace"], result["success"])
             print("\n" + result["answer"])
     finally:
@@ -105,6 +167,10 @@ def main(argv=None) -> int:
         help="工作区目录（所有文件操作限制在此目录内），默认当前目录",
     )
     parser.add_argument("-q", "--quiet", action="store_true", help="只输出最终回答，不打印执行轨迹")
+    parser.add_argument(
+        "--log", metavar="PATH", default=None,
+        help="将执行轨迹以 JSON 写入指定文件（可回放的完整记录，便于面试展示证据）",
+    )
     args = parser.parse_args(argv)
 
     workspace = Path(args.workspace).resolve()
@@ -112,8 +178,8 @@ def main(argv=None) -> int:
         workspace.mkdir(parents=True, exist_ok=True)
 
     if args.task:
-        return run_once(args.task, workspace, verbose=not args.quiet)
-    return run_repl(workspace)
+        return run_once(args.task, workspace, verbose=not args.quiet, log_path=args.log)
+    return run_repl(workspace, log_path=args.log)
 
 
 if __name__ == "__main__":
