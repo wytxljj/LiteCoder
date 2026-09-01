@@ -43,8 +43,14 @@ class LLMClient:
             try:
                 resp = self._client.post(url, json=payload, headers=headers)
                 if resp.status_code == 200:
-                    data = resp.json()
-                    return data["choices"][0]["message"]
+                    try:
+                        data = resp.json()
+                        message = data["choices"][0]["message"]
+                    except (ValueError, KeyError, IndexError, TypeError) as exc:
+                        raise LLMError(f"API 响应结构异常（{type(exc).__name__}）：{exc}") from exc
+                    if not isinstance(message, dict):
+                        raise LLMError("API 响应结构异常：message 不是对象")
+                    return message
                 if resp.status_code in self.RETRIABLE_STATUS and attempt < 2:
                     last_err = f"HTTP {resp.status_code}: {resp.text[:200]}"
                     time.sleep(2 ** attempt)  # 指数退避
