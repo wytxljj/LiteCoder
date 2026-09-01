@@ -12,7 +12,7 @@ class MockLLM:
         self.calls: list[list[dict]] = []
 
     def chat(self, messages, tools=None, on_token=None):
-        self.calls.append(messages)
+        self.calls.append(list(messages))  # 保存快照，避免后续 append 影响已记录的历史
         return self.script.pop(0)
 
     def close(self):
@@ -112,3 +112,32 @@ def test_agent_success_when_last_command_passes(tmp_path):
     result = agent.run("run a passing command")
     assert result["success"] is True
     assert result["trace"][0]["exit_code"] == 0
+
+
+def test_agent_run_returns_messages(tmp_path):
+    # run 返回完整 messages（供会话恢复）
+    cfg = Config()
+    llm = MockLLM([_final("done")])
+    agent = Agent(cfg, llm, ToolRegistry(tmp_path))
+    result = agent.run("hi")
+    assert result["messages"][-1]["role"] == "assistant"
+    assert result["messages"][-1]["content"] == "done"
+
+
+def test_agent_resume_from_checkpoint(tmp_path):
+    # resume_messages 提供时，从断点继续（不重新加 system+user）
+    (tmp_path / "a.py").write_text("x = 1\n")
+    cfg = Config()
+    resume = [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "read a.py"},
+        {"role": "assistant", "content": None,
+         "tool_calls": [{"id": "9", "function": {"name": "read_file", "arguments": '{"path": "a.py"}'}}]},
+        {"role": "tool", "tool_call_id": "9", "content": "x = 1"},
+    ]
+    llm = MockLLM([_final("resumed done")])
+    agent = Agent(cfg, llm, ToolRegistry(tmp_path))
+    result = agent.run("read a.py", resume_messages=resume)
+    assert result["answer"] == "resumed done"
+    # 传给模型的 messages 就是断点内容（而非重新 system+task）
+    assert llm.calls[0] == resume

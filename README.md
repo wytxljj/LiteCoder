@@ -16,6 +16,7 @@ LiteCoder 让 LLM 不只是「生成代码」，而是真正动手干活：它�
 - **关键逻辑全部自研**：Agent Loop、上下文滑动窗口、模型输出解析容错、循环终止、错误处理、工具定义与本地执行。
 - **安全边界**：workspace 路径隔离（防 `../../` 越界）+ 危险命令拦截（`rm -rf /`、`shutdown` 等）。
 - **可观测执行轨迹**：每一步记录工具调用、参数与结果，末尾输出 `Summary`。
+- **会话历史**：每次运行自动存档到 `~/.litecoder/sessions/`，支持 `--sessions` 列出、`--show` 回放、`--resume` 断点恢复。
 
 ## 架构与工作流程
 
@@ -87,6 +88,7 @@ cp .env.example .env
 | `LLM_TIMEOUT` | `120` | 单次 API 请求超时（秒） |
 | `MAX_STEPS` | `20` | Agent 最大迭代步数（防无限循环） |
 | `MAX_CONTEXT_MESSAGES` | `40` | 上下文滑动窗口保留的消息数 |
+| `LLM_SESSIONS_DIR` | `~/.litecoder/sessions` | 会话历史存档目录 |
 
 ### 4. 运行
 
@@ -107,6 +109,14 @@ litecoder -w /path/to/workspace
 
 ```bash
 litecoder "任务" -w /path/to/workspace --log trace.json
+```
+
+会话历史（每次运行自动存档，无需手动 --log）：
+
+```bash
+litecoder --sessions          # 列出所有历史会话
+litecoder --show 1            # 回放第 1 个会话的完整轨迹
+litecoder --resume 1          # 从第 1 个会话的断点继续运行
 ```
 
 ## 工具说明

@@ -31,6 +31,9 @@ class Config:
         self.timeout = float(os.environ.get("LLM_TIMEOUT", "120"))
         self.max_steps = int(os.environ.get("MAX_STEPS", "20"))
         self.max_context_messages = int(os.environ.get("MAX_CONTEXT_MESSAGES", "40"))
+        self.sessions_dir = Path(
+            os.environ.get("LLM_SESSIONS_DIR", str(Path.home() / ".litecoder" / "sessions"))
+        )
 
     def validate(self) -> None:
         if not self.api_key:

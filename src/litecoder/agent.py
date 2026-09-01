@@ -50,32 +50,42 @@ class Agent:
         self.tools = tools
         self.on_token = on_token
         self.trace: list[dict] = []
+        self.messages: list[dict] = []
         self._streamed = False
 
-    def run(self, task: str) -> dict:
-        """执行任务，返回 {answer, steps, trace, success, streamed}。"""
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": task},
-        ]
+    def run(self, task: str, resume_messages: list[dict] | None = None) -> dict:
+        """执行任务，返回 {answer, steps, trace, success, streamed, messages}。
+
+        resume_messages 提供时，从该对话状态继续（而非重新从 system+task 开始），
+        用于「会话恢复」：中断或达到步数上限后从断点接着跑。
+        """
+        if resume_messages is not None:
+            self.messages = [dict(m) for m in resume_messages]
+        else:
+            self.messages = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": task},
+            ]
         self.trace = []
         self._streamed = False
 
         for step in range(1, self.cfg.max_steps + 1):
-            message = self.llm.chat(messages, tools=self.tools.schemas, on_token=self._emit_token)
+            message = self.llm.chat(self.messages, tools=self.tools.schemas, on_token=self._emit_token)
             tool_calls = message.get("tool_calls") or []
 
             if not tool_calls:
                 # 模型不再调用工具 → 视为任务完成，输出最终答案
+                self.messages.append(message)  # 最终答案也回填，保证 resume 上下文完整
                 return {
                     "answer": message.get("content") or "(模型未给出最终答案)",
                     "steps": step,
                     "trace": self.trace,
                     "success": self._verify_completion(),
                     "streamed": self._streamed,
+                    "messages": self.messages,
                 }
 
-            messages.append(message)  # 带 tool_calls 的 assistant 消息必须回填
+            self.messages.append(message)  # 带 tool_calls 的 assistant 消息必须回填
             for call in tool_calls:
                 func = call.get("function", {})
                 name = func.get("name", "")
@@ -92,7 +102,7 @@ class Agent:
                 if name == "run_command":
                     trace_item["exit_code"] = self._parse_exit_code(result)
                 self.trace.append(trace_item)
-                messages.append(
+                self.messages.append(
                     {
                         "role": "tool",
                         "tool_call_id": call.get("id", ""),
@@ -101,7 +111,7 @@ class Agent:
                 )
 
             # 滑动窗口：裁剪过长的历史，保留 system + 原始任务 + 最近若干轮
-            messages = self._trim_context(messages)
+            self.messages = self._trim_context(self.messages)
 
         # 达到最大步数仍未结束
         return {
@@ -110,6 +120,7 @@ class Agent:
             "trace": self.trace,
             "success": False,
             "streamed": self._streamed,
+            "messages": self.messages,
         }
 
     def _emit_token(self, token: str) -> None:
