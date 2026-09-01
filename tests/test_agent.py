@@ -11,7 +11,7 @@ class MockLLM:
         self.script = list(script)
         self.calls: list[list[dict]] = []
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, on_token=None):
         self.calls.append(messages)
         return self.script.pop(0)
 

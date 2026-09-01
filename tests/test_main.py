@@ -11,7 +11,7 @@ class FailingLLM:
     def __init__(self, cfg):
         pass
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, on_token=None):
         raise LLMError("模拟网络失败")
 
     def close(self):
@@ -24,7 +24,7 @@ class ScriptedLLM:
     def __init__(self, script):
         self.script = list(script)
 
-    def chat(self, messages, tools=None):
+    def chat(self, messages, tools=None, on_token=None):
         return self.script.pop(0)
 
     def close(self):

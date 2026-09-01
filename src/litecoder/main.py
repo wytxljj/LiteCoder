@@ -89,7 +89,8 @@ def run_once(task: str, workspace: Path, verbose: bool = True, log_path: Path | 
     cfg.validate()
     llm = LLMClient(cfg)
     tools = ToolRegistry(workspace.resolve())
-    agent = Agent(cfg, llm, tools)
+    on_token = (lambda t: print(t, end="", flush=True)) if verbose else None
+    agent = Agent(cfg, llm, tools, on_token=on_token)
     try:
         result = agent.run(task)
     except LLMError as exc:
@@ -106,10 +107,15 @@ def run_once(task: str, workspace: Path, verbose: bool = True, log_path: Path | 
         _write_trace_log(_build_record(task, cfg, workspace, result=result), log_path)
     if verbose:
         _print_trace(result["trace"], result["success"])
-        print("\n" + "=" * 60)
-        print("最终回答")
-        print("=" * 60)
-    print(result["answer"])
+        if result.get("streamed"):
+            print()  # 最终回答已流式输出，仅换行收尾
+        else:
+            print("\n" + "=" * 60)
+            print("最终回答")
+            print("=" * 60)
+            print(result["answer"])
+    else:
+        print(result["answer"])
     return 0
 
 
@@ -118,7 +124,8 @@ def run_repl(workspace: Path, log_path: Path | None = None) -> int:
     cfg.validate()
     llm = LLMClient(cfg)
     tools = ToolRegistry(workspace.resolve())
-    agent = Agent(cfg, llm, tools)
+    on_token = (lambda t: print(t, end="", flush=True))
+    agent = Agent(cfg, llm, tools, on_token=on_token)
     print(f"LiteCoder 交互模式（工作区：{workspace}），输入 /quit 退出。")
     counter = 0
     try:
@@ -150,7 +157,10 @@ def run_repl(workspace: Path, log_path: Path | None = None) -> int:
                     _numbered_log(log_path, counter),
                 )
             _print_trace(result["trace"], result["success"])
-            print("\n" + result["answer"])
+            if result.get("streamed"):
+                print()  # 已流式输出，仅换行
+            else:
+                print("\n" + result["answer"])
     finally:
         llm.close()
     return 0
