@@ -2,7 +2,6 @@
 
 一个**从零实现**的轻量级编程智能体（Coding Agent）。通过与 LLM 交互，自主读写文件、执行命令，完成交给它的编程任务——类似一个简化版的 Claude Code / Codex / OpenCode。
 
-> 南京大学软件学院 2026 预推免项目考核作品。
 
 ## 是什么
 
@@ -144,6 +143,4 @@ pip install -e ".[dev]"   # 或手动 pip install pytest
 pytest
 ```
 
----
 
-本项目为个人独立完成的考核作品，关键逻辑全部自研。
