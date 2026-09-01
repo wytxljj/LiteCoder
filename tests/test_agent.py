@@ -86,3 +86,29 @@ def test_agent_backfills_tool_messages(tmp_path):
     assert roles == ["system", "user", "assistant", "tool"]
     assert msgs[3]["tool_call_id"] == "1"
     assert "x = 1" in msgs[3]["content"]  # 工具结果写回上下文
+
+
+def test_agent_marks_failure_when_last_command_fails(tmp_path):
+    # 模型在最后一次命令失败（exit_code 非 0）时停止，不应标记为成功
+    cfg = Config()
+    llm = MockLLM([
+        _assistant_with_tool_call("1", "run_command", '{"command": "false"}'),
+        _final("done"),
+    ])
+    agent = Agent(cfg, llm, ToolRegistry(tmp_path))
+    result = agent.run("run a failing command")
+    assert result["success"] is False
+    assert result["trace"][0]["exit_code"] == 1  # false 命令返回 1
+
+
+def test_agent_success_when_last_command_passes(tmp_path):
+    # 最后一次命令 exit_code 0 → 成功
+    cfg = Config()
+    llm = MockLLM([
+        _assistant_with_tool_call("1", "run_command", '{"command": "true"}'),
+        _final("done"),
+    ])
+    agent = Agent(cfg, llm, ToolRegistry(tmp_path))
+    result = agent.run("run a passing command")
+    assert result["success"] is True
+    assert result["trace"][0]["exit_code"] == 0

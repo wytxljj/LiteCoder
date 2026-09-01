@@ -60,7 +60,7 @@ class Agent:
                     "answer": message.get("content") or "(模型未给出最终答案)",
                     "steps": step,
                     "trace": self.trace,
-                    "success": True,
+                    "success": self._verify_completion(),
                 }
 
             messages.append(message)  # 带 tool_calls 的 assistant 消息必须回填
@@ -76,9 +76,10 @@ class Agent:
                 else:
                     result = self.tools.execute(name, arguments)
 
-                self.trace.append(
-                    {"step": step, "tool": name, "args": arguments, "result": result}
-                )
+                trace_item = {"step": step, "tool": name, "args": arguments, "result": result}
+                if name == "run_command":
+                    trace_item["exit_code"] = self._parse_exit_code(result)
+                self.trace.append(trace_item)
                 messages.append(
                     {
                         "role": "tool",
@@ -131,3 +132,26 @@ class Agent:
                 else:
                     rounds.append([msg])
         return rounds
+
+    @staticmethod
+    def _parse_exit_code(result: str) -> int | None:
+        """从 run_command 结果字符串提取 exit_code；超时/拦截等无 exit_code 时返回 None。"""
+        first_line = result.split("\n", 1)[0]
+        if first_line.startswith("exit_code="):
+            try:
+                return int(first_line.split("=", 1)[1])
+            except ValueError:
+                return None
+        return None
+
+    def _verify_completion(self) -> bool:
+        """独立的任务完成验证：检查最后一次命令执行是否成功。
+
+        模型停止调用工具 ≠ 任务真正完成。若最后一次 run_command 失败（exit_code 非 0，
+        或命令超时/被拦截），说明模型在验证尚未通过时就停止了，不能标记为成功。
+        若全程没有 run_command（如纯读文件类任务），则任务不依赖命令验证，视为完成。
+        """
+        for item in reversed(self.trace):
+            if item["tool"] == "run_command":
+                return item.get("exit_code") == 0
+        return True
