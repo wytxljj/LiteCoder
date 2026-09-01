@@ -1,4 +1,4 @@
-"""工具定义与本地执行：JSON Schema 定义 + 执行器，全部自研。"""
+"""工具定义与本地执行：JSON Schema 定义 + 执行器。"""
 import os
 import re
 import signal
@@ -21,6 +21,13 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
     (r"\bmkfs(\.[a-z0-9]+)?\b", "格式化文件系统"),
     (r"\bdd\b.*\bof=/dev/", "直接覆盖磁盘设备"),
     (r":\(\)\s*\{\s*:\|:&\s*\};:", "fork bomb 进程炸弹"),
+    # 越界读取系统/用户敏感文件（凭据、密钥、密码文件）
+    (r"\b(cat|head|tail|less|more|grep|sed|awk|diff|cp)\b[^|;&<>]*(/etc/(passwd|shadow|sudoers)|/root/|(~/)?\.ssh/|(~/)?\.aws/|(~/)?\.gnupg/)", "读取系统或用户敏感文件"),
+    # 下载并执行远程脚本
+    (r"\b(curl|wget)\b[^|;&]*\|\s*(sh|bash)\b", "下载并执行远程脚本"),
+    # 反弹 shell
+    (r"\bnc\b[^|;&]*\s-e\s", "反弹 shell（nc -e）"),
+    (r"bash\s+-i\s*>&\s*/dev/tcp/", "反弹 shell（/dev/tcp）"),
 ]
 
 
